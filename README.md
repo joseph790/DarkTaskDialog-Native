@@ -147,13 +147,12 @@ Because `TaskDialogStyle` always returns light-mode colours, every text element
 paints black-on-dark even when the panel backgrounds are correctly dark.
 
 
-### Windows 11 (build 22000+)
+### Windows 11 
 
-`DarkMode_TaskDialog` **does** exist — it covers all panel backgrounds and the
-expando glyph. `AllowForTaskDialog` walks the `DirectUIHWND` child tree, calls
-`SetWindowTheme(pane, L"DarkMode_TaskDialog", nullptr)` on each structural
-pane, then broadcasts `WM_THEMECHANGED`. comctl32 repaints the backgrounds via
-`dtb(DarkMode_TaskDialog, part, state)` natively. Text is then owner-drawn to
+1- `DarkMode_TaskDialog` **does** exist — it covers all panel backgrounds and the
+expando glyph. `AllowForTaskDialog` walks the `DirectUIHWND` child tree by its `AutomationId`, calls
+`SetWindowTheme(pane, L"DarkMode_TaskDialog", nullptr)` 
+2- Text is then owner-drawn to
 fix the `TaskDialogStyle` colour bug described above.
 
 ### Windows 10 (build 17763–19045)
@@ -162,15 +161,7 @@ fix the `TaskDialogStyle` colour bug described above.
 
 1. Uses **UI Automation** to walk the `DirectUIHWND` child tree, identifying
    each element by its `AutomationId` (the UIFILE atom names).
-2. Subclasses each pane with `WM_ERASEBKGND` / `WM_CTLCOLORDLG` /
-   `WM_CTLCOLORSTATIC` handlers that return a dark brush with the correct
-   `SetTextColor` per element type.
-3. Owner-draws all text elements with `DrawThemeTextEx` + `DTT_TEXTCOLOR`
-   (background filled first since there is no native dark panel paint).
-4. Owner-draws the expando glyph via `DrawThemeBackground(TaskDialog, 13, state)`
-   reading the current expand/collapse state from window properties
-   (`"IsExpanded"`, `"IsChecked"`) seeded by `TDN_EXPANDO_BUTTON_CLICKED` /
-   `TDN_VERIFICATION_CLICKED`.
+2. Owner-draws all elements.
 
 | Element | Windows 10 | Windows 11 |
 |---|---|---|
@@ -260,12 +251,6 @@ Use `TaskDialogIndirect()` with a `TASKDIALOGCONFIG`.
 Yes — call `DarkMode::AllowForTaskDialog(hwnd, pNewConfig)` from `TDN_NAVIGATED`.
 The included `main.cpp` demonstrates page navigation to an Arabic RTL page.
 
-**Why does my text still appear black on Windows 11?**
-Because `DarkMode_TaskDialogStyle` does not exist — see the UIFILE bug section
-above. All text must be owner-drawn with `DTT_TEXTCOLOR`. If you call only
-`SetWindowTheme` without the text owner-draw path you will get dark panel
-backgrounds but black text.
-
 **I see a white flash when the dialog first opens.**
 Ensure `DarkMode::AllowForTaskDialog` is called from `TDN_CREATED`, not
 `TDN_DIALOG_CONSTRUCTED`. `TDN_CREATED` fires after the window is fully
@@ -274,25 +259,8 @@ initialised.
 **Can I use this from MFC?**
 Yes — no MFC dependency. Override `DoMessageBox` and call
 `TaskDialogIndirect` directly. `DarkMode::Init()` can go in `InitInstance`.
-
-**What about pre-Windows 10?**
-`DarkMode::Init()` reads OS state at startup. All calls are silent no-ops
-on pre-Win10 systems.
-
 ---
 
-## Building
-
-```cmd
-git clone https://github.com/YourUsername/DarkTaskDialog-NoDetours.git
-cd DarkTaskDialog-NoDetours
-msbuild DarkTaskDialog-NoDetours.sln /p:Configuration=Release /p:Platform=x64
-```
-
-Links only against: `uxtheme.lib` `dwmapi.lib` `comctl32.lib` `shell32.lib`
-`uiautomationcore.lib` `msimg32.lib` — all part of the Windows SDK.
-
----
 
 ## Related
 
