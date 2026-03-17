@@ -334,11 +334,13 @@ static void PixelSwap(RGBQUAD* px, int rw, int w, int h,
                     p.rgbRed = rules[r].dR;
                     p.rgbGreen = rules[r].dG;
                     p.rgbBlue = rules[r].dB;
+                    p.rgbReserved = 55;
                     break;
                 }
             }
         }
     }
+
 }
 
 // ─── Icon helper ──────────────────────────────────────────────────────────────
@@ -377,7 +379,7 @@ static HICON ResolveIcon(const TASKDIALOGCONFIG* cfg, bool isMain)
 //
 // Layer order:
 //   1. Native render    — WM_PRINTCLIENT into BPBF_TOPDOWNDIB
-//   2. Pixel swap       — replace light panel fills with dark equivalents
+//   2. Pixel swap       — replace light panel fills with dark equivalents 
 //   3. Icon overdraw    — FillRect(dark panel bg) + DrawIconEx
 //   4. Glyph overdraw   — FillRect(dark panel bg) + DrawThemeBackground
 //   5. Text overdraw    — FillRect(dark panel bg) + DrawThemeTextEx / DrawThemeText
@@ -419,7 +421,7 @@ static void PaintDirectUI(HWND hwnd, HDC hdcWin, DirectUIState& s)
         RGBQUAD* pPx = nullptr; int rw = 0;
         if (SUCCEEDED(GetBufferedPaintBits(hbp, &pPx, &rw)))
         {
-            RECT rcBuf = {};
+             RECT rcBuf = {};
             GetBufferedPaintTargetRect(hbp, &rcBuf);
             int w = rcBuf.right - rcBuf.left, h = rcBuf.bottom - rcBuf.top;
 
@@ -434,6 +436,7 @@ static void PaintDirectUI(HWND hwnd, HDC hdcWin, DirectUIState& s)
                   GetRValue(DarkColors::kSeparator), GetGValue(DarkColors::kSeparator), GetBValue(DarkColors::kSeparator) },
             };
             PixelSwap(pPx, rw, w, h, rules, ARRAYSIZE(rules));
+          
         }
     }
 
@@ -628,11 +631,6 @@ static void PaintDirectUI(HWND hwnd, HDC hdcWin, DirectUIState& s)
 // Only attached when dark (subclass presence = dark invariant).
 // WM_ERASEBKGND and WM_PAINT fire unconditionally — no IsActive() check needed.
 //
-// WM_THEMECHANGED / WM_SETTINGCHANGE / WM_SYSCOLORCHANGE:
-//   Theme::Dark  / Theme::Light → OS change is irrelevant; just invalidate.
-//   Theme::System               → re-evaluate live OS preference via IsActive().
-//     If OS switched to light   → call AllowForTaskDialog (remove branch).
-//     If OS stayed dark         → invalidate and repaint.
 
 static LRESULT CALLBACK DirectUISubclassProc(
     HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam,
@@ -717,6 +715,7 @@ static LRESULT CALLBACK WmCtColorSubclassProc(
 {
     switch (msg)
     {
+
     case WM_ERASEBKGND:
     {
         if (!dwRef) break;
@@ -756,18 +755,80 @@ static LRESULT CALLBACK WmCtColorSubclassProc(
     return DefSubclassProc(hwnd, msg, wParam, lParam);
 }
 
+// ─── RadioSubclassProc ─────────────────────────────────────────────────────────────
+// 
+// Apply RadioButton TextColor.
+// RadioButton_*  kTextNormal if new Windows 11 25 H2 DarkMode_DarkTheme Not Found.
+//
+static LRESULT CALLBACK RadioSubclassProc(
+    HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam,
+    UINT_PTR uId, DWORD_PTR dwRef)
+{
+    switch (msg)
+    {
+    case WM_PAINT:
+    {
+        HTHEME hTheme = OpenThemeData(NULL, L"TaskDialogStyle");
+        int dpi = GetDpiForWindow(hwnd);
+        HTHEME hThemeBtn = OpenThemeDataForDpi(hwnd, L"BUTTON", dpi);
+        if (!hThemeBtn)
+        {
+            hThemeBtn = OpenThemeData(NULL, L"Button");
+        }
+        RECT rcClient;
+        GetClientRect(hwnd, &rcClient);
+        PAINTSTRUCT ps;
+        HDC hdc = BeginPaint(hwnd, &ps);
+        HDC hdcBuf = hdc;
+        HPAINTBUFFER hbp = BeginBufferedPaint(hdc, &rcClient, BPBF_TOPDOWNDIB, nullptr, &hdcBuf);
+        if (!hbp)
+        {
+            DefSubclassProc(hwnd, WM_PRINTCLIENT, (WPARAM)hdcBuf, PRF_CLIENT);
+        }
+
+        DefSubclassProc(hwnd, WM_PRINTCLIENT, (WPARAM)hdcBuf, PRF_CLIENT);
+        wchar_t text[256] = {};
+        GetWindowTextW(hwnd, text, _countof(text));
+        SIZE gsize;
+        GetThemePartSize(hThemeBtn, hdcBuf, BP_RADIOBUTTON, RBS_UNCHECKEDNORMAL, &rcClient, TS_TRUE, &gsize);
+        RECT rcText = { gsize.cx + 2, 0, rcClient.right, rcClient.bottom };
+        DTTOPTS dots = {sizeof(dots)};
+        dots.dwFlags = DTT_COMPOSITED | DTT_TEXTCOLOR;
+        dots.crText = DarkColors::kTextNormal;
+        LOGFONT logFont;
+        HRESULT hr = GetThemeFont(hTheme, hdcBuf, TDLG_RADIOBUTTONPANE, 0, TMT_FONT, &logFont);
+        HFONT font = CreateFontIndirect(&logFont);
+        HFONT oldFont = SelectFont(hdcBuf, font);
+        DrawThemeTextEx(hTheme, hdcBuf, TDLG_RADIOBUTTONPANE, 0, text, -1, DT_LEFT | DT_VCENTER | DT_END_ELLIPSIS, &rcText, &dots);
+        CloseThemeData(hTheme);
+        CloseThemeData(hThemeBtn);
+        SelectFont(hdcBuf, oldFont);
+        DeleteFont(font);
+        if (hbp)
+        {
+            EndBufferedPaint(hbp, true);
+        }
+        EndPaint(hwnd, &ps);
+        return 0;
+    }
+    
+    case WM_DESTROY:
+        RemoveWindowSubclass(hwnd, RadioSubclassProc, uId);
+        return DefSubclassProc(hwnd, msg, wParam, lParam);
+    }
+    return DefSubclassProc(hwnd, msg, wParam, lParam);
+}
+
 // ─── TaskDialogMainSubclassProc ───────────────────────────────────────────────
 // Only attached when dark (subclass presence = dark invariant).
 //
 // WM_CTLCOLORDLG:
-//   No IsActive() check needed — subclass presence guarantees dark.
+// For collapsed,expanded Background erease during resize
 //
-// WM_THEMECHANGED / WM_SETTINGCHANGE / WM_SYSCOLORCHANGE:
+// WM_SETTINGCHANGE
 //   Just redraw. This subclass has no access to the per-dialog Theme — the
 //   DirectUISubclassProc owns the teardown decision for Theme::System.
-//   Calling AllowForTaskDialog here would create a recursion:
-//     AllowForTaskDialog → SendMessage(WM_THEMECHANGED) → this handler → ...
-//
+// 
 // WM_DESTROY:
 //   RemoveFromTaskDialog cleans up all dark subclasses.
 
@@ -778,9 +839,9 @@ static LRESULT CALLBACK TaskDialogMainSubclassProc(
     switch (msg)
     {
     case WM_CTLCOLORDLG:
-        // Subclass presence = dark — no guard needed.
     {
-        if (((g_theme == DarkMode::Theme::System) && !ReadOsDarkMode()) || g_theme == DarkMode::Theme::Dark)
+        // collapsed, expanded Back Color 
+        if (ResolveDark(g_theme))
         {
             HDC hdc = (HDC)wParam;
             SetBkColor(hdc, DarkColors::kSecondary);
@@ -791,16 +852,13 @@ static LRESULT CALLBACK TaskDialogMainSubclassProc(
        
     }
     break;
+
     case WM_SETTINGCHANGE:
     {
-        if (g_theme ==DarkMode::Theme::System)
+        if (g_theme == DarkMode::Theme::System)
         {
             DarkMode::AllowForTaskDialog(hwnd, (TASKDIALOGCONFIG*)dwRef, g_theme);
-           
         }
-
-       
-     
     }
         break;
     case WM_DESTROY:
@@ -828,11 +886,10 @@ namespace DarkMode
     bool HasNativeTaskDialogTheme() { return g_hasNativeTheme; }
 
     // ── EnableForTLW ──────────────────────────────────────────────────────────
-    // Sets the dark title bar (DWMWA_USE_IMMERSIVE_DARK_MODE) and applies
-    // DarkMode_Explorer window theme.
-    // Called only from the dark path in AllowForTaskDialog — no IsActive() guard.
+    // Sets o Remove  the dark title bar (DWMWA_USE_IMMERSIVE_DARK_MODE) 
+    // 
 
-    void EnableForTLW(HWND hwnd)
+    void EnableForTLW(HWND hwnd,bool dark)
     {
         static HMODULE hDwm = LoadLibraryW(L"dwmapi.dll");
         if (!hDwm) return;
@@ -840,7 +897,7 @@ namespace DarkMode
         static auto fn = (pfnDwmSWA)GetProcAddress(hDwm, "DwmSetWindowAttribute");
         if (fn)
         {
-            BOOL use = TRUE;
+            BOOL use = dark;
             if (FAILED(fn(hwnd, 20, &use, sizeof(use)))) // DWMWA_USE_IMMERSIVE_DARK_MODE
                 fn(hwnd, 19, &use, sizeof(use));          // pre-20348 fallback
         }
@@ -871,9 +928,9 @@ namespace DarkMode
     //     Walk child windows via UIA, attach subclasses, apply window themes.
     //     Subclass presence IS the dark flag — no SetProp / GetProp needed.
 
-    void AllowForTaskDialog(HWND hwndTD, TASKDIALOGCONFIG* pCfg,
-        DarkMode::Theme theme /*= Theme::System*/)
+    void AllowForTaskDialog(HWND hwndTD, TASKDIALOGCONFIG* pCfg, DarkMode::Theme theme /*= Theme::System*/)
     {
+        // Comment this to use Pixel-swap pass
         g_hasNativeTheme =
             IsDarkThemeActive(L"DarkMode_Explorer::TaskDialog", L"TaskDialog") ||
             IsDarkThemeActive(L"DarkMode_DarkTheme::TaskDialog", L"TaskDialog");
@@ -908,6 +965,10 @@ namespace DarkMode
                         RemoveWindowSubclass(hwndChild, DirectUISubclassProc, kDirectUISubclassId);
                         DestroyState(hwndChild);
                     }
+                    if (GetWindowSubclass(hwndChild, RadioSubclassProc, kCtlColorId, &ex))
+                    {
+                        RemoveWindowSubclass(hwndChild, RadioSubclassProc, kCtlColorId);
+                    }
                     if (GetWindowSubclass(hwndChild, WmCtColorSubclassProc, kCtlColorId, &ex))
                     {
                         RemoveWindowSubclass(hwndChild, WmCtColorSubclassProc, kCtlColorId);
@@ -922,6 +983,7 @@ namespace DarkMode
             if (!GetWindowSubclass(hwndTD, TaskDialogMainSubclassProc, kMainSubclassId, &existing))
                 SetWindowSubclass(hwndTD, TaskDialogMainSubclassProc,
                     kMainSubclassId, (DWORD_PTR)pCfg);
+            EnableForTLW(hwndTD,FALSE);
             return;
         }
 
@@ -1032,7 +1094,7 @@ namespace DarkMode
                         ct == UIA_RadioButtonControlTypeId ||
                         ct == UIA_ProgressBarControlTypeId ||
                         ct == UIA_HyperlinkControlTypeId ||
-                        ct == UIA_ScrollBarControlTypeId)
+                        ct == UIA_ScrollBarControlTypeId || ct ==  UIA_PaneControlTypeId)
                     {
                         HWND hBtn = nullptr;
                         if (SUCCEEDED(pChild->get_CurrentNativeWindowHandle(
@@ -1068,19 +1130,31 @@ namespace DarkMode
                                 id.find(L"RadioButton_") == 0 ||
                                 ct == UIA_HyperlinkControlTypeId)
                             {
-                                // TODO: subclass for RadioButton text foreground when
-                                //       DarkMode_DarkTheme is not available.
-                                const bool hasDarkTheme =
-                                    IsDarkThemeActive(L"DarkMode_DarkTheme::TaskDialog", L"TaskDialog");
-                                AllowForWindow(hBtn, hasDarkTheme
-                                    ? L"DarkMode_DarkTheme" : L"DarkMode_Explorer");
                                 DWORD_PTR ex = 0;
+                                // Subclass for RadioButton text foreground when new Windows 11 25H2 DarkMode_DarkTheme is not available.
+                                const bool hasDarkTheme = IsDarkThemeActive(L"DarkMode_DarkTheme::TaskDialog", L"TaskDialog");
+                                if (hasDarkTheme)
+                                {
+                                    AllowForWindow(hBtn, L"DarkMode_DarkTheme");
+                                }
+                                else
+                                {
+                                    if (hBtn && !GetWindowSubclass(hBtn, RadioSubclassProc, kCtlColorId, &ex))
+                                        SetWindowSubclass(hBtn, RadioSubclassProc, kCtlColorId,
+                                            (DWORD_PTR)CreateSolidBrush(
+                                                g_hasNativeTheme
+                                                ? DarkColors::kSecondary
+                                                : DarkColors::kPrimary));
+                                }
+                         
                                 if (hP && !GetWindowSubclass(hP, WmCtColorSubclassProc, kCtlColorId, &ex))
                                     SetWindowSubclass(hP, WmCtColorSubclassProc, kCtlColorId,
                                         (DWORD_PTR)CreateSolidBrush(
                                             g_hasNativeTheme
                                             ? DarkColors::kSecondary
                                             : DarkColors::kPrimary));
+                               
+
                             }
                             else if (id.find(L"CommandLink_") == 0)
                             {
@@ -1154,7 +1228,7 @@ namespace DarkMode
         if (data.found)
         {
             // On Win11 apply theme to the outer dialog after TaskPage so all
-            // child windows inherit the correct DarkMode_Explorer heritage.
+            // child windows inherit the correct DarkMode_Explorer background heritage.
             if (g_hasNativeTheme)
             {
                 AllowForWindow(hwndTD, L"DarkMode_Explorer");
@@ -1167,6 +1241,7 @@ namespace DarkMode
                 if (!GetWindowSubclass(hwndTD, TaskDialogMainSubclassProc, kMainSubclassId, &existing))
                     SetWindowSubclass(hwndTD, TaskDialogMainSubclassProc,
                         kMainSubclassId, (DWORD_PTR)pCfg);
+             // Full RedrawWindow The Window and Children.
             EnumChildWindows(hwndTD, [](HWND hwndDuiChild, LPARAM) -> BOOL
                 {
 

@@ -93,7 +93,7 @@ namespace DarkMode
 
     // Sets DWMWA_USE_IMMERSIVE_DARK_MODE and DarkMode_Explorer window theme
     // on a top-level window (dark title bar + chrome).
-    void EnableForTLW(HWND hwnd);
+    void EnableForTLW(HWND hwnd, bool dark = true);
 
     // Applies SetWindowTheme to any child control.
     // Called only from the dark path — no IsActive() guard.
@@ -115,8 +115,7 @@ namespace DarkMode
     // TDN_NAVIGATED: call again with the same theme to re-apply after page nav.
     // Dark→light transition: call with Theme::Light (or Theme::System when OS
     //   is light) — all dark subclasses are removed automatically.
-    void AllowForTaskDialog(HWND hwndTaskDialog, TASKDIALOGCONFIG* pConfig,
-        Theme theme = Theme::System);
+    void AllowForTaskDialog(HWND hwndTaskDialog, TASKDIALOGCONFIG* pConfig, Theme theme = Theme::System);
 
     // Call from TDN_DESTROYED to free per-dialog state.
     // Also called automatically from TaskDialogMainSubclassProc WM_DESTROY.
